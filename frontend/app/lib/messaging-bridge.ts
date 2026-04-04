@@ -1,5 +1,6 @@
 // Abstract transport layer — plug in WebSocket, SSE, or gRPC-Web by implementing MessagingTransport.
-// Factory auto-selects: DemoTransport (default) or WebSocketTransport (when NEXT_PUBLIC_BACKEND_WS_URL is set).
+// Factory auto-selects: GrpcWebTransport (NEXT_PUBLIC_GRPC_URL) → WebSocketTransport (NEXT_PUBLIC_BACKEND_WS_URL) → DemoTransport.
+import { GrpcWebTransport } from './grpc-transport';
 import type { MessageEnvelope } from './types';
 
 export type MessageHandler = (envelope: MessageEnvelope) => void;
@@ -10,6 +11,8 @@ export interface MessagingTransport {
   disconnect(): void;
   send(envelope: MessageEnvelope): Promise<void>;
   isConnected(): boolean;
+  /** Optional — provide the Supabase JWT so the transport can authenticate with the server. */
+  setToken?(token: string): void;
 }
 
 // ─── Demo Transport ───────────────────────────────────────────────────────
@@ -126,6 +129,8 @@ export class WebSocketTransport implements MessagingTransport {
 // ─── Factory ──────────────────────────────────────────────────────────────
 
 export function createTransport(): MessagingTransport {
+  const grpcUrl = process.env.NEXT_PUBLIC_GRPC_URL;
+  if (grpcUrl) return new GrpcWebTransport(grpcUrl);
   const wsUrl = process.env.NEXT_PUBLIC_BACKEND_WS_URL;
   if (wsUrl) return new WebSocketTransport(wsUrl);
   return new DemoTransport();

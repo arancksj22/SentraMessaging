@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createTransport } from '../lib/messaging-bridge';
 import { saveMessage, getConversationMessages } from '../lib/db';
+import { supabase } from '../lib/supabase';
 import type { LocalMessage, MessageEnvelope, StreamStatus, Contact } from '../lib/types';
 import type { User } from '@supabase/supabase-js';
 import type { useCrypto } from './useCrypto';
@@ -26,6 +27,12 @@ export function useMessaging(user: User | null, crypto: CryptoHook) {
   useEffect(() => {
     if (!user) return;
     const t = transportRef.current;
+
+    // Provide auth token to transport (used by GrpcWebTransport for ClientMessage.token)
+    supabase.auth.getSession().then(({ data }) => {
+      const token = data.session?.access_token;
+      if (token) t.setToken?.(token);
+    });
 
     t.connect(
       user.id,
