@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  envoy:
+    image: envoyproxy/envoy:v1.27-latest
+    volumes:
+      - ./envoy/envoy.yaml:/etc/envoy/envoy.yaml
+    ports:
+      - "8080:8080" # Envoy port
+      - "9901:9901" # Admin port
+    depends_on:
+      - backend
+
+  backend:
+    build: 
+      context: ./backend
+    ports:
+      - "50051:50051" # Native gRPC port
+      - "8000:8000"   # FastAPI HTTP port
+    env_file:
+      - ./backend/.env

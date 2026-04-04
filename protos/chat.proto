@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package chat;
+
+// The chat service definition.
+service ChatService {
+  // Bi-directional stream for real-time messaging
+  rpc StreamMessages (stream ClientMessage) returns (stream ServerMessage);
+}
+
+// Message from Client -> Server
+message ClientMessage {
+  string token = 1; // Used for authentication
+  string receiver_id = 2; // Destination user ID
+  bytes encrypted_payload = 3; // AES encrypted data
+  string message_type = 4; // text, media, etc
+  string ratchet_key = 5; // Public key for Double Ratchet advancement
+}
+
+// Message from Server -> Client
+message ServerMessage {
+  string sender_id = 1;
+  bytes encrypted_payload = 2;
+  string message_type = 3;
+  string ratchet_key = 4;
+  int64 timestamp = 5;
+}
