@@ -1,13 +1,5 @@
-/**
- * messaging-bridge.ts — Abstract Transport Layer
- *
- * Decouple the UI from the specific backend transport.
- * Plug in WebSocket, SSE, gRPC-Web, or any other transport by
- * implementing the MessagingTransport interface.
- *
- * Default: DemoTransport (simulates a connected backend for development).
- * Production: Set NEXT_PUBLIC_BACKEND_WS_URL to activate WebSocketTransport.
- */
+// Abstract transport layer — plug in WebSocket, SSE, or gRPC-Web by implementing MessagingTransport.
+// Factory auto-selects: DemoTransport (default) or WebSocketTransport (when NEXT_PUBLIC_BACKEND_WS_URL is set).
 import type { MessageEnvelope } from './types';
 
 export type MessageHandler = (envelope: MessageEnvelope) => void;

@@ -7,12 +7,6 @@ export interface PublicKeyBundle {
   createdAt?: string;
 }
 
-export interface IdentityKeys {
-  x25519PrivateKey: Uint8Array;
-  x25519PublicKey: Uint8Array;
-  kyberPrivateKey: Uint8Array;
-  kyberPublicKey: Uint8Array;
-}
 
 export interface RatchetState {
   rootKey: string;           // base64

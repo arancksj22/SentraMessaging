@@ -13,17 +13,16 @@ export function useMessaging(user: User | null, crypto: CryptoHook) {
   const [messages, setMessages]         = useState<LocalMessage[]>([]);
   const [streamStatus, setStreamStatus] = useState<StreamStatus>('disconnected');
   const [latencyMs, setLatencyMs]       = useState<number | null>(null);
-  const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const [contacts, setContacts]         = useState<Contact[]>([
-    // Demo contacts
-    { userId: 'demo-bob-001',     displayName: 'Bob Chen',     email: 'bob@ciphercore.demo',     sessionEstablished: false },
-    { userId: 'demo-charlie-002', displayName: 'Charlie Park',  email: 'charlie@ciphercore.demo', sessionEstablished: false },
-    { userId: 'demo-eve-003',     displayName: 'Eve Santos',    email: 'eve@ciphercore.demo',     sessionEstablished: true },
+    { userId: 'demo-bob-001',     displayName: 'Bob Chen',    email: 'bob@ciphercore.demo',     sessionEstablished: false },
+    { userId: 'demo-charlie-002', displayName: 'Charlie Park', email: 'charlie@ciphercore.demo', sessionEstablished: false },
+    { userId: 'demo-eve-003',     displayName: 'Eve Santos',   email: 'eve@ciphercore.demo',     sessionEstablished: true  },
   ]);
 
-  const transportRef = useRef(createTransport());
+  // Ref so inbound message handler always has the current conversation id (avoids stale closure)
+  const activeConvIdRef = useRef<string | null>(null);
+  const transportRef    = useRef(createTransport());
 
-  // Connect stream
   useEffect(() => {
     if (!user) return;
     const t = transportRef.current;
@@ -31,7 +30,6 @@ export function useMessaging(user: User | null, crypto: CryptoHook) {
     t.connect(
       user.id,
       async (envelope: MessageEnvelope) => {
-        // Decrypt inbound message
         const result = await crypto.decryptInbound({
           ciphertextB64:  envelope.ciphertextB64,
           dhHeaderB64:    envelope.dhHeaderB64,
@@ -40,21 +38,23 @@ export function useMessaging(user: User | null, crypto: CryptoHook) {
           conversationId: envelope.conversationId,
         });
 
-        const packed = atob(envelope.ciphertextB64);
-        const preview = Array.from(packed.slice(0, 8), c => c.charCodeAt(0).toString(16).padStart(2, '0')).join('');
+        const raw     = atob(envelope.ciphertextB64);
+        const preview = Array.from(raw.slice(0, 8), c => c.charCodeAt(0).toString(16).padStart(2, '0')).join('');
 
         const msg: LocalMessage = {
-          id:               envelope.id,
-          conversationId:   envelope.conversationId,
-          direction:        'inbound',
-          plaintext:        result?.plaintext ?? '[decryption failed]',
+          id:                envelope.id,
+          conversationId:    envelope.conversationId,
+          direction:         'inbound',
+          plaintext:         result?.plaintext ?? '[decryption failed]',
           ciphertextPreview: preview,
-          timestamp:        envelope.timestamp,
-          epoch:            result?.newEpoch ?? 0,
-          delivered:        true,
+          timestamp:         envelope.timestamp,
+          epoch:             result?.newEpoch ?? 0,
+          delivered:         true,
         };
+
         await saveMessage(msg);
-        if (envelope.conversationId === activeConvId) {
+        // Use ref — not state — so this always reflects the current conversation
+        if (envelope.conversationId === activeConvIdRef.current) {
           setMessages(prev => [...prev, msg]);
         }
       },
@@ -69,7 +69,7 @@ export function useMessaging(user: User | null, crypto: CryptoHook) {
   }, [user?.id]);
 
   const loadConversation = useCallback(async (conversationId: string) => {
-    setActiveConvId(conversationId);
+    activeConvIdRef.current = conversationId;
     const msgs = await getConversationMessages(conversationId);
     setMessages(msgs);
   }, []);
@@ -78,7 +78,6 @@ export function useMessaging(user: User | null, crypto: CryptoHook) {
     if (!user) return;
     const conversationId = [user.id, recipientId].sort().join(':');
 
-    // Ensure session exists
     if (!contacts.find(c => c.userId === recipientId)?.sessionEstablished) {
       await crypto.initiateHandshake(recipientId);
       setContacts(prev => prev.map(c => c.userId === recipientId ? { ...c, sessionEstablished: true } : c));
@@ -87,33 +86,33 @@ export function useMessaging(user: User | null, crypto: CryptoHook) {
     const encrypted = await crypto.encryptOutbound(plaintext, conversationId);
     if (!encrypted) { console.error('[useMessaging] Encryption failed'); return; }
 
-    const packed = atob(encrypted.ciphertextB64);
-    const preview = Array.from(packed.slice(0, 8), c => c.charCodeAt(0).toString(16).padStart(2, '0')).join('');
+    const raw     = atob(encrypted.ciphertextB64);
+    const preview = Array.from(raw.slice(0, 8), c => c.charCodeAt(0).toString(16).padStart(2, '0')).join('');
 
     const msg: LocalMessage = {
-      id:               crypto.currentEpoch + '-' + Date.now(),
+      id:                `${crypto.currentEpoch}-${Date.now()}`,
       conversationId,
-      direction:        'outbound',
+      direction:         'outbound',
       plaintext,
       ciphertextPreview: preview,
-      timestamp:        new Date().toISOString(),
-      epoch:            encrypted.newEpoch,
-      delivered:        false,
+      timestamp:         new Date().toISOString(),
+      epoch:             encrypted.newEpoch,
+      delivered:         false,
     };
 
     await saveMessage(msg);
     setMessages(prev => [...prev, msg]);
 
     const envelope: MessageEnvelope = {
-      id:              msg.id,
+      id:            msg.id,
       conversationId,
-      senderId:        user.id,
+      senderId:      user.id,
       recipientId,
-      ciphertextB64:   encrypted.ciphertextB64,
-      dhHeaderB64:     encrypted.dhHeaderB64,
-      msgNum:          encrypted.msgNum,
-      prevChainLen:    encrypted.prevChainLen,
-      timestamp:       msg.timestamp,
+      ciphertextB64: encrypted.ciphertextB64,
+      dhHeaderB64:   encrypted.dhHeaderB64,
+      msgNum:        encrypted.msgNum,
+      prevChainLen:  encrypted.prevChainLen,
+      timestamp:     msg.timestamp,
     };
 
     try {
@@ -124,9 +123,5 @@ export function useMessaging(user: User | null, crypto: CryptoHook) {
     }
   }, [user, contacts, crypto]);
 
-  return {
-    messages, streamStatus, latencyMs, activeConvId,
-    contacts, setContacts,
-    sendMessage, loadConversation,
-  };
+  return { messages, streamStatus, latencyMs, contacts, setContacts, sendMessage, loadConversation };
 }

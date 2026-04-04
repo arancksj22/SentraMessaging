@@ -116,29 +116,17 @@ export function useAuth() {
     await supabase.auth.signOut();
   }, []);
 
-  // Demo mode override: simulate logged-in state when no Supabase credentials
+  // Demo mode: simulate auth + key gen when no Supabase credentials are configured
   useEffect(() => {
-    const isDemo = !process.env.NEXT_PUBLIC_SUPABASE_URL;
-    if (isDemo && state.loading) {
-      const demoUser = {
-        id: 'demo-user-001',
-        email: 'alice@ciphercore.demo',
-        user_metadata: { full_name: 'Alice (Demo)' },
-      } as unknown as User;
-      setTimeout(() => {
-        setState({ user: demoUser, loading: false, error: null, keyStatus: 'generating', x25519PubKey: null, kyberPubKey: null });
-        // Simulate key gen in demo
-        setTimeout(() => {
-          setState(prev => ({
-            ...prev,
-            keyStatus: 'ready',
-            x25519PubKey: btoa('demo-x25519-public-key-32bytes!!!!!'),
-            kyberPubKey:  btoa('demo-kyber768-public-key-for-display-purposes-only'),
-          }));
-        }, 2500);
-      }, 1000);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (process.env.NEXT_PUBLIC_SUPABASE_URL) return;
+    const demoUser = { id: 'demo-user-001', email: 'alice@ciphercore.demo' } as unknown as User;
+    const t1 = setTimeout(() =>
+      setState({ user: demoUser, loading: false, error: null, keyStatus: 'generating', x25519PubKey: null, kyberPubKey: null })
+    , 1000);
+    const t2 = setTimeout(() =>
+      setState(prev => ({ ...prev, keyStatus: 'ready', x25519PubKey: btoa('demo-x25519-pub-key-32-bytes-placeholder'), kyberPubKey: btoa('demo-kyber768-pub-key-placeholder') }))
+    , 3500);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
   }, []);
 
   return { ...state, login, signup, logout };
