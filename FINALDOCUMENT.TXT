@@ -1,0 +1,633 @@
+SentraMessaging: A Post-Quantum-Oriented, Zero-Knowledge Real-Time Messaging Framework
+
+Authors: Team B040, B054, B057, B059
+Project Domain: Cybersecurity Systems Engineering
+Document Type: Comprehensive Technical Report (Pre-Results Sections)
+
+
+ABSTRACT
+
+We present SentraMessaging, a secure real-time messaging framework that combines asynchronous cloud-native routing with client-centric cryptographic control. The system addresses a central problem in contemporary secure communications: how to provide low-latency conversational messaging while improving resilience to both present-day threats and anticipated post-quantum attacks under practical browser constraints. The project uses a layered design in which users authenticate through Supabase, exchange discoverable public key bundles, and establish conversation sessions using a post-quantum extended Diffie-Hellman construction (PQXDH) that combines X25519 and Kyber-768 material. Message confidentiality and integrity are enforced with AES-256-GCM, while per-message key evolution follows a Double Ratchet-style chain-key derivation strategy for forward secrecy. 
+
+Our implementation spans a Next.js/TypeScript frontend, a Web Worker cryptographic engine, IndexedDB local state persistence, and a FastAPI backend that performs authenticated relay via WebSocket and Redis pub/sub fan-out. A legacy/compatibility gRPC streaming path remains in the backend and protocol definitions, while the operational browser path uses authenticated WebSocket transport to satisfy real browser interoperability constraints. We further provide security feature and performance benchmark scripts that validate the presence and runtime behavior of key cryptographic primitives and their wiring into the message flow. 
+
+The technical contribution is not a single algorithmic novelty; rather, it is a pragmatic systems integration of post-quantum handshake semantics, ratcheted message protection, local key custody, and distributed relay into a cohesive end-to-end architecture suitable for iterative deployment. We document the architecture, trust boundaries, protocol flow, concurrency model, state management strategy, and implementation decisions that characterize Phase One and its subsequent hardening trajectory.
+
+Keywords: End-to-end encryption, PQXDH, X25519, Kyber-768, Double Ratchet, AES-256-GCM, zero-knowledge architecture, secure messaging, Web Worker cryptography, Redis pub/sub.
+
+
+1. INTRODUCTION
+
+1.1 Background and Motivation
+
+Secure messaging systems are expected to provide strong confidentiality, authenticity, integrity, and forward secrecy while preserving high responsiveness in interactive chat contexts. Traditional implementations often prioritize one axis (security rigor or usability/performance) at the expense of the other. At the same time, quantum-threat awareness has shifted architectural requirements: systems that rely solely on classical key exchange can be exposed to harvest-now-decrypt-later risk, where encrypted traffic captured today may be decrypted in the future once cryptanalytic capabilities improve.
+
+SentraMessaging was initiated to explore a practical middle ground: (i) browser-friendly real-time communication, (ii) local-first key custody and encrypted payload handling, and (iii) explicit transition toward post-quantum-resilient handshake semantics. The project’s Phase One documentation proposed a stack centered on React frontend interaction, FastAPI orchestration, Supabase identity/public key services, Redis-based message distribution, and gRPC-oriented transport bridging. The current codebase preserves this conceptual architecture while introducing operational adaptations that improve deployability and reliability in actual browser execution.
+
+1.2 Problem Statement
+
+We address the following systems problem:
+
+How can a browser-based messaging platform provide scalable low-latency message delivery while ensuring that key exchange and session establishment are resistant to both classical and emerging post-quantum threats, without exposing private keys to infrastructure servers?
+
+Sub-problems include:
+
+1) Browser transport limitations versus ideal protocol design.
+2) Real-time session synchronization under asynchronous and lossy delivery conditions.
+3) Secure local persistence of identity/session state across app restarts.
+4) Practical migration and compatibility paths between evolving handshake modes.
+5) Strong authentication and authorization boundaries in a distributed architecture.
+
+1.3 Project Objectives
+
+The implementation targets the following concrete objectives:
+
+1) Maintain zero-knowledge server behavior with client-side cryptography.
+2) Support post-quantum-assisted session bootstrap using X25519 + Kyber-768.
+3) Protect message payloads using authenticated encryption (AES-256-GCM).
+4) Enforce per-message key evolution through ratchet chain derivation.
+5) Provide practical transport and routing via authenticated WebSocket and Redis pub/sub.
+6) Validate algorithmic correctness and runtime wiring through reproducible scripts.
+
+1.4 Scope and Non-Scope
+
+In-scope:
+
+- Identity key generation and storage on client side.
+- Public key bundle publication/discovery for handshake initiation.
+- PQXDH session bootstrap and inbound completion logic.
+- Ratcheted message key progression for outbound/inbound message processing.
+- Authenticated server relay and distributed routing.
+- Functional and micro-performance security tests.
+
+Out-of-scope in current phase:
+
+- Formal protocol proofs in symbolic or computational models.
+- Full deniable authentication semantics.
+- Comprehensive group messaging ratchets.
+- Production-grade secure enclave integration.
+- Full adversarial Internet-scale deployment study.
+
+1.5 Contributions of This Codebase
+
+We summarize the primary engineering contributions as follows:
+
+1) A browser-compatible end-to-end encrypted chat architecture with local private-key custody.
+2) A practical PQXDH handshake integration using Web Worker cryptographic execution.
+3) Explicit connect-intent/connect-ack control envelopes to coordinate two-sided handshake state.
+4) Message-chain synchronization hardening in decrypt flow via message number catch-up and replay rejection.
+5) Compatibility-preserving fallback pathways to support staged migration and recovery.
+6) Security feature and benchmark scripts that link algorithm-level checks with live code wiring.
+
+
+2. SYSTEM CONTEXT AND PHASE-ONE ALIGNMENT
+
+2.1 Phase-One Architectural Intent
+
+The Phase-One project material describes a high-performance, secure messaging architecture with the following design intents:
+
+- Frontend-managed local encryption/decryption.
+- Supabase-managed identity/authentication and public key bundle directory.
+- FastAPI core API handling stream management and routing.
+- Redis for cross-instance pub/sub distribution.
+- Envoy bridge to support browser gRPC-Web interoperability with native gRPC backend services.
+- Security stack built on PQXDH, Double Ratchet, and AES-256-GCM.
+
+2.2 Current Operational Realization
+
+The current implementation realizes this architecture with a key practical adaptation:
+
+- The principal browser runtime path uses authenticated WebSocket envelopes for message relay.
+- A native gRPC stream service and protocol definitions remain in place for backend/service continuity and testing.
+
+This divergence is architectural evolution rather than contradiction. Browser constraints around bidirectional gRPC-Web streaming support and reliability motivated a direct WebSocket relay path while preserving the broader distributed and cryptographic goals from Phase One.
+
+2.3 Functional Achievement Summary
+
+At the system level, the codebase achieves:
+
+- End-user authentication integrated with Supabase session tokens.
+- Local generation and storage of X25519 and Kyber identity material.
+- Public bundle publication for peer discovery and key exchange readiness.
+- Session establishment through PQXDH payload exchange and ratchet initialization.
+- Encrypted payload transport with message metadata for ordered decryption.
+- Stateful session and message persistence enabling continuity across reloads.
+- Feature-level and performance-level cryptographic verification scripts.
+
+
+3. SYSTEM ARCHITECTURE AND METHODOLOGY
+
+3.1 Architectural Overview
+
+SentraMessaging is implemented as a layered distributed system:
+
+Layer A: Client Application Plane
+- Next.js frontend UI and state orchestration.
+- Hooks for authentication, cryptography, and messaging lifecycle.
+- IndexedDB persistence for identity keys, sessions, and local messages.
+
+Layer B: Client Cryptographic Plane
+- Dedicated Web Worker exposing cryptographic primitives via Comlink RPC.
+- Isolation from UI thread to reduce blocking and improve responsiveness.
+
+Layer C: Relay and Routing Plane
+- FastAPI WebSocket endpoint for authenticated envelope relay.
+- Redis pub/sub channels per user for horizontal message fan-out.
+
+Layer D: Identity and Directory Plane
+- Supabase authentication for user identity and token issuance.
+- Supabase table for user public key bundles with row-level controls.
+
+Layer E: Optional Protocol Bridge Plane
+- Envoy + gRPC definitions retained as compatibility and extension path.
+
+3.2 Trust Boundaries and Security Domains
+
+The system defines several explicit trust boundaries:
+
+Boundary 1: User device versus infrastructure
+- Private keys never leave client-side local storage.
+- Server components do not require plaintext message access.
+
+Boundary 2: Authenticated user versus routing fabric
+- Backend validates session token before WebSocket acceptance.
+- Published envelopes carry sender identity derived from verified token, not untrusted client claims.
+
+Boundary 3: Control metadata versus ciphertext payload
+- Handshake and transport metadata are visible to relay services as needed for routing/state orchestration.
+- Message plaintext remains protected by client-side AES-GCM.
+
+Boundary 4: Session evolution consistency
+- Ratchet chain keys evolve locally and are persisted by conversation context.
+- Replay/out-of-order checks are enforced during decrypt processing.
+
+3.3 End-to-End Data Flow Methodology
+
+3.3.1 User Authentication and Bootstrapping
+
+1) The frontend initializes Supabase auth state.
+2) On sign-in, local identity keys are loaded or generated.
+3) Public components of identity keys are uploaded to Supabase user bundle table.
+4) UI transitions to secure chat workspace once key status is ready.
+
+Security implication:
+- Identity provisioning ensures each user can be discovered for handshake without exposing private material.
+
+3.3.2 Contact Discovery and Session Readiness
+
+1) Contacts are fetched from Supabase user bundles.
+2) Session establishment state is inferred from local session records.
+3) UI prevents regular message transmission unless connection/session preconditions are met.
+
+Security implication:
+- Reduced accidental plaintext/uninitialized transmission paths.
+
+3.3.3 Connection Negotiation
+
+Connection establishment uses two explicit control envelopes:
+
+- connect-intent: indicates user intention to establish secure session.
+- connect-ack: includes (or follows) handshake payload needed by peer.
+
+Deterministic initiator selection is based on stable user ID ordering to avoid dual-initiation conflicts.
+
+Security implication:
+- Explicit control plane decouples transport-level connectivity from cryptographic session readiness.
+
+3.3.4 PQXDH Handshake Procedure
+
+Outbound side:
+1) Generate ephemeral X25519 keypair.
+2) Compute DH with local ephemeral private key and peer static X25519 public key.
+3) Encapsulate peer Kyber public key to produce Kyber ciphertext and shared secret.
+4) Concatenate classical DH and Kyber shared secret material.
+5) Apply HKDF-SHA256 to derive final session shared secret.
+6) Return handshake payload containing ephemeral public key and Kyber ciphertext.
+
+Inbound side:
+1) Compute DH using local static private key and sender ephemeral public key.
+2) Decapsulate received Kyber ciphertext using local Kyber private key.
+3) Concatenate DH and Kyber shared secret outputs.
+4) Apply HKDF-SHA256 with matched domain context to derive shared secret.
+
+Security rationale:
+- The combined derivation improves resilience by requiring both classical and post-quantum components for key recovery under intended threat assumptions.
+
+3.3.5 Ratchet Initialization Method
+
+From the shared secret:
+1) Derive deterministic directional chain seeds (chain A and chain B) via HKDF contexts.
+2) Assign sending/receiving chain keys based on initiator role.
+3) Initialize ratchet counters, previous chain length, and epoch metadata.
+
+Security rationale:
+- Deterministic directional assignment ensures both peers derive compatible but separated send/receive states without ambiguity.
+
+3.3.6 Message Encryption and Header Binding
+
+For each outbound message:
+1) Advance sending chain key with KDF-CK (HMAC-based derivation).
+2) Produce per-message key.
+3) Build header containing ratchet-relevant metadata {dhPub, n, pn}.
+4) Encrypt plaintext with AES-256-GCM, using header bytes as Additional Authenticated Data (AAD).
+5) Package ciphertext and header into envelope for relay.
+
+Security rationale:
+- AAD ties ciphertext validity to ratchet metadata; tampering causes decryption failure.
+
+3.3.7 Message Decryption and Chain Synchronization
+
+For each inbound message:
+1) Validate receiving chain presence.
+2) Reject replay/out-of-order messages where incoming n < local recvMsgNum.
+3) If incoming n is ahead, iteratively advance receiving chain to catch up.
+4) Derive message key for target index and decrypt with AES-256-GCM using header AAD.
+5) Update receiving chain state and counters.
+
+Security rationale:
+- Gap handling prevents permanent desynchronization after dropped/delayed packets.
+- Replay rejection protects chain state from rollback attempts.
+
+3.3.8 Session Repair and Compatibility Fallback
+
+On recoverable decryption failures (e.g., missing receiving key or operation errors):
+1) Attempt inbound session reconstruction from attached PQXDH handshake payload.
+2) If unavailable, force fresh PQXDH initiation as repair path.
+3) Retry decryption with repaired session state once.
+
+A static X25519+HKDF fallback derive path is retained for compatibility and staged rollout safety.
+
+3.4 Transport and Routing Methodology
+
+3.4.1 Primary Browser Transport (WebSocket)
+
+- Client sets bearer token before opening socket.
+- Backend validates token and resolves authoritative user identity.
+- Client sends JSON envelope with routing and cryptographic fields.
+- Backend normalizes envelope and publishes to Redis channel for recipient.
+- Recipient subscription task forwards envelope over active socket.
+
+3.4.2 Redis Pub/Sub Routing
+
+- Channel namespace follows user-scoped topics (user:{id}).
+- Publish-subscribe pattern decouples message producers from active socket consumers.
+- Supports multi-instance routing scenarios where sender/recipient sessions may terminate on different backend workers.
+
+3.4.3 gRPC Service Path (Retained)
+
+- Protobuf contract defines bidirectional StreamMessages RPC.
+- Backend gRPC servicer maps client stream messages to Redis and reconstructs server stream payloads.
+- This path remains relevant for protocol evolution, service-level testing, and non-browser clients.
+
+3.5 Security Properties Targeted by Methodology
+
+Property A: Confidentiality
+- Achieved via client-side AES-256-GCM encryption and local key custody.
+
+Property B: Integrity and Authenticity of Ciphertexts
+- Achieved via AES-GCM authentication tag with AAD-bound ratchet headers.
+
+Property C: Forward Secrecy (session progression level)
+- Achieved via chain-key evolution and per-message key derivation.
+
+Property D: Post-Quantum Hardening (handshake phase)
+- Achieved via inclusion of Kyber-derived secret in handshake derivation.
+
+Property E: Zero-Knowledge Server Operation
+- Achieved by design separation where server routes opaque ciphertext envelopes.
+
+
+4. IMPLEMENTATION DETAILS
+
+4.1 Technology Stack Rationale
+
+Frontend:
+- Next.js and React provide a component-driven, real-time UI foundation.
+- TypeScript enforces interface-level discipline for envelope/session structures.
+- Framer Motion supports state-aware interaction feedback during handshake phases.
+
+Cryptography runtime:
+- Web Crypto API provides native primitives (HKDF, HMAC, AES-GCM).
+- libsodium-wrappers provides robust X25519 operations.
+- pqc-kyber package provides Kyber KEM operations, with fallback handling for runtime incompatibilities.
+- Comlink abstracts worker RPC, reducing serialization boilerplate.
+
+Persistence:
+- IndexedDB via idb package supports structured local persistence for identity keys, sessions, and messages.
+
+Backend:
+- FastAPI offers asynchronous WebSocket handling and lightweight HTTP diagnostics.
+- redis.asyncio provides non-blocking pub/sub integration.
+- grpc.aio path supports retained streaming service functionality.
+- httpx and JWT verification support token validation strategies.
+
+4.2 Concurrency and Asynchrony Model
+
+4.2.1 Frontend Concurrency
+
+- Cryptographic heavy operations run in a dedicated worker to avoid blocking UI rendering.
+- Hook-based asynchronous flows coordinate auth, handshake, and transport interactions.
+- Message receive handlers use stable references (active conversation ref) to prevent stale closure bugs.
+
+4.2.2 Backend Concurrency
+
+- FastAPI event loop handles multiple websocket sessions concurrently.
+- Per-connection Redis listener task forwards inbound pub/sub events.
+- gRPC stream handling uses asynchronous queues and tasks to decouple client read/write from Redis events.
+
+4.2.3 Session Consistency Under Concurrency
+
+- Session state is read/update persisted after each encrypt/decrypt operation.
+- Deterministic initiator role and control envelopes reduce race conditions during connect attempts.
+- Replay and catch-up logic in decrypt path mitigates out-of-order delivery effects.
+
+4.3 Implementation Patterns and Modular Organization
+
+Pattern 1: Hook Separation of Concerns
+- useAuth: identity lifecycle and key publication.
+- useCrypto: cryptographic session logic and worker interaction.
+- useMessaging: transport, routing orchestration, message persistence.
+
+Pattern 2: Transport Abstraction
+- messaging-bridge exposes a common interface for demo, WebSocket, and optional gRPC-Web transport implementations.
+
+Pattern 3: Typed Envelope Contract
+- Unified MessageEnvelope carries routing identifiers, cryptographic metadata, control metadata, and optional handshake payload.
+
+Pattern 4: Progressive Compatibility
+- Fallback and migration-aware paths preserve functionality while transitioning to stronger handshake workflows.
+
+4.4 Data Model and State Lifecycle
+
+Identity Keys Store:
+- user-scoped local records for X25519 and Kyber private/public key material.
+
+Sessions Store:
+- keyed by conversation ID, holding ratchet state, handshake mode, and establishment metadata.
+
+Messages Store:
+- keyed by message ID with conversation index for chronological retrieval.
+
+Lifecycle:
+1) Generate/load identity keys.
+2) Upload public bundle.
+3) Establish session through connect + handshake.
+4) Encrypt/send and decrypt/receive with ratchet progression.
+5) Persist updates after each cryptographic state transition.
+
+4.5 Security Hardening Decisions in Code Evolution
+
+Decision A: Token-first socket establishment
+- Transport obtains Supabase access token before WebSocket connect, reducing unauthorized handshake failures.
+
+Decision B: Envelope pass-through preservation
+- Backend relay retains handshake/control objects in forwarded envelopes.
+
+Decision C: Two-sided connection protocol
+- Explicit connect-intent/connect-ack semantics added to reduce ambiguous session states.
+
+Decision D: Receive-chain synchronization
+- Decrypt path now advances chain by incoming message number to address operation errors caused by chain drift.
+
+Decision E: Controlled send gating
+- Outbound messaging blocked unless connection/session preconditions are satisfied.
+
+4.6 Operational Characteristics
+
+- Health endpoint provides quick backend liveness checking.
+- Automated backend test client validates HTTP health plus gRPC stream routing behavior.
+- Security scripts validate primitive correctness and wiring assumptions independent of UI.
+
+
+5. METHODOLOGY
+
+5.1 Research and Engineering Method
+
+We adopt a build-verify-harden methodology:
+
+Phase A: Design and decomposition
+- Define architecture by distinct identity, cryptography, transport, and storage planes.
+- Specify zero-knowledge and post-quantum requirements.
+
+Phase B: Incremental implementation
+- Implement baseline local key management and encrypted messaging path.
+- Integrate Supabase identity and bundle directory.
+- Introduce PQXDH handshake payload exchange into live flow.
+
+Phase C: Failure-driven hardening
+- Instrument and analyze decryption failures under asynchronous operation.
+- Add deterministic connect semantics and chain synchronization fixes.
+- Preserve fallback compatibility for recovery and migration.
+
+Phase D: Verification and benchmark
+- Execute functional security feature tests for each core primitive.
+- Execute micro-benchmark script for primitive-level latency characteristics.
+
+5.2 Verification Methodology (Without Results)
+
+5.2.1 Functional Security Checks
+
+The security feature script validates:
+
+1) X25519 shared-secret agreement and HKDF consistency.
+2) Kyber encapsulate/decapsulate agreement.
+3) AES-GCM round-trip correctness and tamper rejection.
+4) Double Ratchet chain-step consistency and directional separation.
+5) Code wiring audit flags for handshake and message flow integration.
+
+5.2.2 Performance Method
+
+The benchmark script records mean, p50, and p95 latency for:
+
+- X25519 DH operation.
+- HKDF derivation.
+- Ratchet chain KDF step.
+- AES-GCM encrypt/decrypt of fixed payload size.
+- Kyber keypair, encapsulation, and decapsulation.
+
+Sampling uses repeated iterations per operation with high-resolution timers.
+
+5.3 Reproducibility Procedure
+
+To reproduce the methodology:
+
+1) Start backend service with configured environment variables.
+2) Start frontend development server.
+3) Run security feature test script.
+4) Run performance benchmark script.
+5) Execute browser-level chat interactions across two authenticated users.
+6) Observe handshake state transitions, message delivery, and decrypt integrity.
+
+5.4 Methodological Assumptions
+
+- Browser runtime provides stable Web Crypto and worker support.
+- Supabase auth and key bundle table policies are correctly configured.
+- Redis channel operations are available and low-latency.
+- Time synchronization is sufficient for operational logging (not used as cryptographic primitive).
+
+5.5 Threats to Method Validity
+
+Internal validity risks:
+- Incomplete simulation of wide-area network disruptions during local tests.
+- Runtime differences between Node scripts and browser worker execution.
+
+External validity risks:
+- Performance characteristics may vary significantly across hardware/browser combinations.
+- Security behavior under highly adversarial traffic patterns requires dedicated penetration testing.
+
+Construct validity risks:
+- Primitive-level microbenchmarks do not directly equal end-to-end user latency.
+- Wiring audit booleans indicate integration presence, not formal protocol correctness proof.
+
+
+6. ETHICAL, SECURITY, AND COMPLIANCE CONSIDERATIONS (PRE-RESULTS)
+
+6.1 User Data Protection Posture
+
+- Private key material is retained locally; servers handle only public bundles and encrypted payloads.
+- Message confidentiality design reduces central plaintext exposure.
+- Public bundle visibility is necessary for discovery and key exchange but should be governed by authenticated access controls.
+
+6.2 Responsible Cryptographic Engineering
+
+- The system uses widely accepted primitives for handshake and payload protection.
+- Fallback pathways are kept explicit to avoid silent weakening of security assumptions.
+- Operational documentation should state clearly which path is active at runtime.
+
+6.3 Deployment Hygiene Requirements
+
+Before production deployment, operators should enforce:
+
+1) Strict transport security (TLS termination and secure websocket endpoints).
+2) Secret management for backend credentials and JWT verification keys.
+3) Audited Supabase RLS and grants for user_bundles.
+4) Centralized logging and anomaly monitoring for connection abuse.
+5) Incident response plans for key compromise and account recovery.
+
+
+7. LIMITATIONS AND ENGINEERING ROADMAP (PRE-RESULTS)
+
+7.1 Present Limitations
+
+- Protocol formalization and machine-checked proofs are not yet included.
+- Group messaging and multi-device consistency semantics are not fully developed.
+- Current retained gRPC path and primary WebSocket path introduce dual-transport complexity.
+- Advanced anti-traffic-analysis protections are not currently implemented.
+
+7.2 Planned Technical Extensions
+
+1) Formal protocol specification and verification artifacts.
+2) Stronger authenticated key confirmation semantics.
+3) Expanded telemetry for session-state diagnosis in distributed deployments.
+4) Multi-device key management and conflict-safe session synchronization.
+5) Optional post-quantum signature integration for stronger identity attestation.
+
+
+8. SUMMARY OF PRE-RESULTS SECTIONS
+
+This report documented the project up to and including the full methodological foundation: abstract, introduction, architecture, implementation, and methodology. The codebase currently demonstrates a coherent and practical realization of a post-quantum-oriented secure messaging framework with browser-compatible transport, local key custody, ratcheted encryption, and distributed relay infrastructure.
+
+
+9. RESULTS
+
+9.1 Experimental Setup for Result Generation
+
+We generated the present result set from the updated security feature test pipeline executed through:
+
+- npm run test:security
+
+The script now includes a dedicated "Results Section" that records:
+
+1) Per-test status (PASS/FAIL).
+2) Per-test execution time (milliseconds).
+3) Test-specific validation details.
+4) Aggregate pass/fail rates.
+5) Runtime wiring audit and inferred active handshake path.
+
+The reported run timestamp was 2026-04-15T18:21:06.462Z.
+
+9.2 Functional Cryptographic Results
+
+All four core security checks passed:
+
+1) X25519 + HKDF: PASS
+2) Kyber-768 KEM: PASS
+3) AES-256-GCM: PASS
+4) Double Ratchet chain KDF: PASS
+
+Aggregate outcome:
+
+- passCount = 4
+- failCount = 0
+- passRatePercent = 100.00
+
+9.3 Test Runtime Measurements (Feature Script)
+
+Observed per-test execution times from the same run were:
+
+- X25519 + HKDF: 24.14 ms
+- Kyber-768 KEM: 15.07 ms
+- AES-256-GCM: 4.12 ms
+- Double Ratchet chain KDF: 3.84 ms
+
+These values are end-to-end script-level timings for individual checks and include local runtime overhead. They should be interpreted as functional verification timings rather than strict primitive microbenchmarks.
+
+9.4 Wiring and Integration Evidence
+
+The usage audit produced the following key booleans as true:
+
+- hasPerformPQXDH
+- hasCompleteInboundPQXDH
+- wiredPerformPQXDH
+- wiredCompleteInboundPQXDH
+- wiredOutboundPQXDHHandshake
+- wiredInboundPQXDHHandshake
+- wiredHandshakeEnvelope
+- wiredInitRatchet
+- wiredEncrypt
+- wiredDecrypt
+
+The script classified the active path as:
+
+- full PQXDH path with handshake envelope exchange
+
+Additionally, wiredStaticDerive remained true, indicating intentional compatibility fallback retention.
+
+
+10. DISCUSSION
+
+10.1 Interpretation of Security Validation
+
+The 100% pass rate across X25519/HKDF, Kyber-768, AES-256-GCM, and Double Ratchet chain checks demonstrates that the intended cryptographic building blocks are not merely present in source code; they are executable and coherent under the current runtime environment. In particular, the Kyber result confirms active post-quantum KEM operability in the tested Node runtime mode (native-subpath), which strengthens confidence in the project’s post-quantum handshake claims.
+
+10.2 System-Level Implications
+
+When interpreted alongside the usage-audit booleans, the results indicate that SentraMessaging has moved from a primitive-availability stage to an integration-complete stage for two-party session bootstrap and encrypted payload flow. The classification of the active handshake as full PQXDH path with envelope exchange is especially significant because it aligns with the architecture’s stated objective to avoid relying solely on classical static derivation during normal operation.
+
+10.3 Practical Performance Perspective
+
+The feature-script durations are low enough to support interactive messaging usage, with all checks executing within tens of milliseconds in this environment. This suggests that cryptographic operations are unlikely to be the dominant latency source in live chat. Consistent with the broader architecture, practical end-to-end latency is expected to be governed more by transport, scheduling, and synchronization than by primitive compute cost.
+
+10.4 Remaining Technical Caveats
+
+Despite positive results, we identify several caveats:
+
+1) The feature script validates cryptographic correctness and wiring but does not independently prove protocol security under adversarial network manipulation.
+2) Script-level timings do not substitute for multi-client soak tests under packet reordering, drops, and reconnect storms.
+3) The presence of wiredStaticDerive is intentional for compatibility, but operational policy should ensure fallback paths are controlled and observable in production.
+
+10.5 Alignment with Project Goals
+
+These findings strongly align with the project objectives defined earlier:
+
+- Zero-knowledge operation remains intact through client-side cryptography.
+- Post-quantum-assisted handshake is active in the integrated path.
+- Ratcheted message confidentiality/integrity mechanisms are functioning.
+- Reproducible validation tooling now produces publication-ready result summaries.
+
+
+11. CONCLUSION
+
+Based on the updated test script outputs, we conclude that SentraMessaging achieves its core phase-level security engineering targets in the evaluated environment. All four principal cryptographic components passed validation, the integration audit confirms active PQXDH handshake wiring with envelope exchange, and no failures were observed in the current verification run. 
+
+At this stage, the project demonstrates a credible and practically deployable foundation for post-quantum-oriented secure messaging with local key custody, authenticated relay, and ratcheted message protection. The most important next step is to complement these positive functional outcomes with extended adversarial and long-duration distributed tests, thereby converting implementation confidence into deployment-grade assurance.

@@ -1,0 +1,264 @@
+CyberSecurity  Project  -  B040,  B054,  B057,  B059    Our  project  is  a  high-performance  messaging  framework  built  with  a  React  frontend  and  
+an
+ 
+asynchronous
+ 
+FastAPI
+ 
+backend
+ 
+using
+ 
+gRPC
+ 
+bi-directional
+ 
+streaming
+ 
+for
+ 
+real-time
+ 
+data
+ 
+exchange.
+ 
+The
+ 
+architecture
+ 
+utilizes
+ 
+an
+ 
+Envoy
+ 
+proxy
+ 
+to
+ 
+bridge
+ 
+browser-based
+ 
+gRPC-Web
+ 
+traffic
+ 
+and
+ 
+Redis
+ 
+as
+ 
+a
+ 
+distributed
+ 
+message
+ 
+broker
+ 
+for
+ 
+cross-instance
+ 
+communication
+ 
+while
+ 
+Supabase
+ 
+manages
+ 
+user
+ 
+authentication
+ 
+and
+ 
+public
+ 
+key
+ 
+storage.
+ 
+On
+ 
+the
+ 
+security
+ 
+front,
+ 
+the
+ 
+project
+ 
+implements
+ 
+a
+ 
+Post-Quantum
+ 
+Extended
+ 
+Diffie-Hellman
+ 
+handshake
+ 
+that
+ 
+fuses
+ 
+X25519
+ 
+elliptic
+ 
+curve
+ 
+cryptography
+ 
+with
+ 
+Kyber-768
+ 
+to
+ 
+provide
+ 
+resilience
+ 
+against
+ 
+future
+ 
+quantum
+ 
+computing
+ 
+threats.
+ 
+Every
+ 
+conversation
+ 
+is
+ 
+further
+ 
+secured
+ 
+by
+ 
+the
+ 
+Double
+ 
+Ratchet
+ 
+algorithm
+ 
+to
+ 
+ensure
+ 
+perfect
+ 
+forward
+ 
+secrecy
+ 
+and
+ 
+encrypted
+ 
+using
+ 
+AES-256-GCM
+ 
+to
+ 
+maintain
+ 
+strict
+ 
+message
+ 
+integrity
+ 
+and
+ 
+confidentiality
+ 
+across
+ 
+the
+ 
+entire
+ 
+delivery
+ 
+pipeline.
+  
+  
+
+
+Component  Purpose  Tech  Stack  
+Frontend  UI  Client-side  interface  &  local  encryption/decryption.  
+React  (Vite)  +  gRPC-Web  
+Identity/Auth  User  management  &  Public  Key  Bundle  storage.  
+Supabase  (PostgreSQL)  
+The  Bridge  Translates  Browser  gRPC-Web to  Native  gRPC.  
+Envoy  Proxy  
+The  Core  API  Orchestrates  message  routing  &  stream  management.  
+FastAPI  (Python)  
+Message  Broker  Real-time  Pub/Sub  for  cross-instance  messaging.  
+Redis   
+Orchestrator  Unified  demo  environment  &  network  bridging.  
+Docker  Compose  
+   
+Component  Security  Algorithm  Purpose  
+Identity  Handshake  
+PQXDH  (Posht-Quantum  Extended  Diffie-Hellman)  
+Can  resist  quantum  attacks.  
+Session  Ratchet  Double  Ratchet  Algorithm  (Signal  Protocol)  
+Provides  Forward  Secrecy ;  stealing  a  key  today  doesn't  unlock  past  messages.  
+
+Data  Encryption  AES-256-GCM  Authenticated  encryption  that  ensures  Integrity  (detects  if  bits  were  flipped).  
+Identity  Trust  Zero-Knowledge  Architecture  
+The  server  never  sees  Private  Keys;  it  only  acts  as  a  directory  for  Public  Key  Bundles.  
+Transport  Security  
+gRPC  Bi-directional  Streaming  
+Native  binary  protocol;  harder  to  intercept/modify  than  standard  JSON  WebSockets.  
+ Literature  Review   
+Paper  Title  &  Author  (Year)  
+Objective  Methodology  Key  Findings  &  Performance  
+Research  Gaps  /  Limitations  
+[1]  Implementation  of  Secure  E2E  Chat  App  Using  DH  and  AES-256  (MDPI,  2025)  
+Propose  a  secure  chat  architecture  within  a  microservice  environment.  
+Used  Diffie-Hellman  (DH)  for  key  exchange  and  AES-256  for  symmetric  encryption.  
+Confirmed  high  throughput  and  low  latency  for  secure  communication  in  microservices.  
+Standard  DH  is  vulnerable  to  "Harvest  Now,  Decrypt  Later"  quantum  threats.  
+[2]  End-to-End  Encrypted  Messaging  Protocols:  An  Overview  (Ermoshina  et  al.,  2016)  
+Survey  and  analyze  core  protocols  used  in  decentralized  and  E2E  messaging.  
+Comparative  survey  of  30  projects  including  Signal,  PGP,  and  various  email-oriented  services.  
+Provided  a  foundational  taxonomy  of  decentralized  vs.  centralized  E2EE  protocols.  
+As  a  2016  paper,  it  lacks  coverage  of  modern  Post-Quantum  (PQ)  algorithm  transitions.  
+
+[3]  End-to-End  Encryption:  Evolution,  Barriers,  and  Emerging  Trends  (Springer,  2025)  
+Examine  multidisciplinary  barriers  and  trends  in  modern  E2EE  deployments.  
+Case  study  analysis  of  platforms  like  WhatsApp  using  AES,  RSA,  and  DH.  
+Industry  standards  are  well-defined,  but  research  gaps  exist  in  automated  user  authentication.  
+Identifies  a  lack  of  security  in  automated  authentication  and  audio-specific  channels.  
+[4]  Advancements  and  Comparative  Analysis  of  Digital  Signature  Algorithms  (IJRASET,  2023)  
+Compare  security  properties  of  various  digital  signature  algorithms.  
+Reviewed  RSA  variants  (Batch,  MultiPrime)  and  Elliptic  Curve  (ECDSA)  algorithms.  
+ECDSA  offers  better  performance  than  RSA  variants;  highlighted  resistance  to  chosen-message  attacks.  
+High  computational  overhead  for  some  MultiPrime  RSA  variants  in  resource-constrained  environments.  
+[5]  Encryption  Techniques  for  Different  Messenger  Applications  (IJITEE,  2019)  
+Benchmark  encryption  standards  across  popular  consumer  messaging  apps.  
+Comparative  study  of  WhatsApp  (Curve25519)  vs.  other  apps  using  RSA/AES.  
+Confirmed  AES-256  with  Curve25519  as  the  industry  standard  for  mobile  performance.  
+Does  not  address  the  transition  to  Post-Quantum  algorithms  or  gRPC-based  transport.  
+ 

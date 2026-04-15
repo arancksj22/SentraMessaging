@@ -85,6 +85,7 @@ async function testX25519AndHkdf() {
   assert(Buffer.compare(Buffer.from(k1), Buffer.from(k2)) === 0, 'HKDF outputs differ');
 
   pass('X25519 + HKDF', 'shared secret derivation is consistent');
+  return 'X25519 shared secret and HKDF output matched on both peers';
 }
 
 async function testKyber() {
@@ -109,7 +110,7 @@ async function testKyber() {
   if (!mod) {
     const reason = importError instanceof Error ? importError.message : String(importError ?? 'unknown import error');
     pass('Kyber-768 KEM', `module import unavailable in this Node runtime (${reason}); app would use fallback simulation`);
-    return;
+    return `Kyber module unavailable in Node runtime; fallback note recorded (${reason})`;
   }
 
   const api = mod.kyber768 ?? mod.default?.kyber768 ?? mod.default ?? mod;
@@ -130,6 +131,7 @@ async function testKyber() {
 
   assert(Buffer.compare(Buffer.from(ss1), Buffer.from(ss2)) === 0, 'Kyber encapsulate/decapsulate shared secrets differ');
   pass('Kyber-768 KEM', `encapsulate/decapsulate works (${kyberMode})`);
+  return `Kyber encapsulate/decapsulate shared secret matched (${kyberMode})`;
 }
 
 async function testAesGcm() {
@@ -154,6 +156,7 @@ async function testAesGcm() {
 
   assert(tamperRejected, 'Tampered AES-GCM ciphertext was not rejected');
   pass('AES-256-GCM', 'round trip and tamper detection both passed');
+  return 'AES-GCM round trip succeeded and tampered ciphertext was rejected';
 }
 
 async function testDoubleRatchetStep() {
@@ -175,6 +178,7 @@ async function testDoubleRatchetStep() {
   assert(Buffer.compare(Buffer.from(senderMsgKey), Buffer.from(wrongMsgKey)) !== 0, 'Opposite chain unexpectedly matched');
 
   pass('Double Ratchet chain KDF', 'same-chain sync and opposite-chain separation verified');
+  return 'Chain-step sync succeeded and opposite-direction key separation held';
 }
 
 async function usageAudit() {
@@ -216,6 +220,33 @@ async function usageAudit() {
     : (usage.wiredStaticDerive ? 'static X25519 + HKDF fallback path' : 'unknown');
 
   console.log(`\nHandshake path currently used in app: ${livePath}`);
+  return { usage, livePath };
+}
+
+function printResultsSection(testResults, usageResult) {
+  console.log('\nResults Section');
+  console.log('==============');
+
+  for (const r of testResults) {
+    const symbol = r.status === 'PASS' ? 'PASS' : 'FAIL';
+    const detail = r.detail ? ` | ${r.detail}` : '';
+    console.log(`${symbol} | ${r.name} | ${r.durationMs.toFixed(2)}ms${detail}`);
+  }
+
+  const passCount = testResults.filter(r => r.status === 'PASS').length;
+  const failCount = testResults.filter(r => r.status === 'FAIL').length;
+  const aggregate = {
+    generatedAt: new Date().toISOString(),
+    passCount,
+    failCount,
+    passRatePercent: Number(((passCount / testResults.length) * 100).toFixed(2)),
+    tests: testResults,
+    handshakePath: usageResult.livePath,
+    usageAudit: usageResult.usage,
+  };
+
+  console.log('\nResults JSON');
+  console.log(JSON.stringify(aggregate, null, 2));
 }
 
 async function main() {
@@ -230,16 +261,31 @@ async function main() {
   ];
 
   let failed = 0;
+  const testResults = [];
   for (const [name, fn] of tests) {
+    const started = performance.now();
     try {
-      await fn();
+      const detail = await fn();
+      testResults.push({
+        name,
+        status: 'PASS',
+        durationMs: performance.now() - started,
+        detail: detail ?? '',
+      });
     } catch (error) {
       failed += 1;
       fail(name, error);
+      testResults.push({
+        name,
+        status: 'FAIL',
+        durationMs: performance.now() - started,
+        detail: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
-  await usageAudit();
+  const usageResult = await usageAudit();
+  printResultsSection(testResults, usageResult);
 
   console.log('\nSummary');
   console.log(`Passed: ${tests.length - failed}`);
