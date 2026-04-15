@@ -1,0 +1,13 @@
+version: v2
+plugins:
+  # Generates TypeScript types from .proto (replaces app/lib/proto/chat.ts hand-typed version)
+  - remote: buf.build/bufbuild/es:v2.2.3
+    out: app/lib/proto
+    opt:
+      - target=ts
+
+  # Generates Connect-Web service clients (ChatServiceClient etc.)
+  - remote: buf.build/connectrpc/es:v2.0.0
+    out: app/lib/proto
+    opt:
+      - target=ts

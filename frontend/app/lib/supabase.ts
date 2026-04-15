@@ -32,13 +32,3 @@ export async function fetchPublicBundle(userId: string) {
   if (error) { console.error('[Supabase] fetchPublicBundle error:', error); return null; }
   return data as { user_id: string; x25519_public_key: string; kyber_public_key: string };
 }
-
-export async function fetchAllContacts(currentUserId: string) {
-  if (!supabaseUrl) return [];
-  const { data, error } = await supabase
-    .from('user_bundles')
-    .select('user_id, x25519_public_key, kyber_public_key, updated_at')
-    .neq('user_id', currentUserId);
-  if (error) { console.error('[Supabase] fetchAllContacts error:', error); return []; }
-  return data ?? [];
-}

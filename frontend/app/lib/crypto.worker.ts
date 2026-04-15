@@ -1,14 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-/**
- * crypto.worker.ts — CipherCore Security Engine
- * Runs in a Web Worker via Comlink to keep the UI thread at 60fps.
- *
- * Implements:
- *  - X25519 key generation (libsodium)
- *  - Kyber-768 KEM (pqc-kyber WASM, with graceful demo fallback)
- *  - PQXDH handshake (X25519 DH + Kyber encapsulate/decapsulate + HKDF)
- *  - Double Ratchet Algorithm (HMAC-based chain KDF + AES-256-GCM via WebCrypto)
- */
+// CipherCore Security Engine — runs in a Web Worker via Comlink.
+// Implements: X25519 keygen, Kyber-768 KEM, PQXDH handshake, Double Ratchet, AES-256-GCM.
 import * as Comlink from 'comlink';
 import _sodium from 'libsodium-wrappers';
 import type { RatchetState } from './types';
@@ -21,23 +13,23 @@ const b64 = {
 };
 
 async function hkdf(ikm: Uint8Array, salt: Uint8Array, info: string, len: number): Promise<Uint8Array> {
-  const key = await crypto.subtle.importKey('raw', ikm, 'HKDF', false, ['deriveBits']);
+  const key = await crypto.subtle.importKey('raw', ikm.buffer as ArrayBuffer, 'HKDF', false, ['deriveBits']);
   const bits = await crypto.subtle.deriveBits(
-    { name: 'HKDF', hash: 'SHA-256', salt, info: new TextEncoder().encode(info) },
+    { name: 'HKDF', hash: 'SHA-256', salt: salt.buffer as ArrayBuffer, info: new TextEncoder().encode(info) },
     key, len * 8,
   );
   return new Uint8Array(bits);
 }
 
 async function hmac(key: Uint8Array, data: Uint8Array): Promise<Uint8Array> {
-  const k = await crypto.subtle.importKey('raw', key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  return new Uint8Array(await crypto.subtle.sign('HMAC', k, data));
+  const k = await crypto.subtle.importKey('raw', key.buffer as ArrayBuffer, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  return new Uint8Array(await crypto.subtle.sign('HMAC', k, data.buffer as ArrayBuffer));
 }
 
 async function aesgcmEncrypt(key: Uint8Array, plaintext: Uint8Array, aad: Uint8Array) {
   const nonce = crypto.getRandomValues(new Uint8Array(12));
-  const k = await crypto.subtle.importKey('raw', key, 'AES-GCM', false, ['encrypt']);
-  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce, additionalData: aad }, k, plaintext);
+  const k = await crypto.subtle.importKey('raw', key.buffer as ArrayBuffer, 'AES-GCM', false, ['encrypt']);
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce, additionalData: aad.buffer as ArrayBuffer }, k, plaintext.buffer as ArrayBuffer);
   const packed = new Uint8Array(12 + ct.byteLength);
   packed.set(nonce);
   packed.set(new Uint8Array(ct), 12);
@@ -47,8 +39,8 @@ async function aesgcmEncrypt(key: Uint8Array, plaintext: Uint8Array, aad: Uint8A
 async function aesgcmDecrypt(key: Uint8Array, packed: Uint8Array, aad: Uint8Array): Promise<Uint8Array> {
   const nonce = packed.slice(0, 12);
   const ct    = packed.slice(12);
-  const k = await crypto.subtle.importKey('raw', key, 'AES-GCM', false, ['decrypt']);
-  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: nonce, additionalData: aad }, k, ct);
+  const k = await crypto.subtle.importKey('raw', key.buffer as ArrayBuffer, 'AES-GCM', false, ['decrypt']);
+  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: nonce, additionalData: aad.buffer as ArrayBuffer }, k, ct.buffer as ArrayBuffer);
   return new Uint8Array(pt);
 }
 

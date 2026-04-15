@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&display=swap');
 
 /* ═══════════════════════════════════════════════════════
    CIPHERCORE DESIGN SYSTEM — Obsidian Cyber Theme
@@ -34,8 +34,8 @@
   --border-accent: rgba(0, 245, 255, 0.22);
 
   /* Fonts */
-  --font-display: 'Space Grotesk', system-ui, sans-serif;
-  --font-mono:    'JetBrains Mono', 'Fira Code', monospace;
+  --font-display: 'Montserrat', system-ui, sans-serif;
+  --font-mono:    'Montserrat', system-ui, sans-serif;
 
   /* Spacing */
   --radius-sm:  4px;

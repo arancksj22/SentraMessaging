@@ -4,32 +4,14 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import * as Comlink from 'comlink';
 import { getIdentityKeys, saveSession, getSession } from '../lib/db';
 import { fetchPublicBundle } from '../lib/supabase';
-import type { CryptoWorkerAPI, HandshakeStatus, RatchetState, SessionState } from '../lib/types';
+import type { CryptoWorkerAPI, HandshakeStatus, SessionState } from '../lib/types';
 import type { User } from '@supabase/supabase-js';
 
-export interface CryptoState {
+interface CryptoState {
   workerReady: boolean;
   handshakeStatus: HandshakeStatus;
   handshakeTarget: string | null;
   currentEpoch: number;
-}
-
-export interface CryptoAPI {
-  initiateHandshake(recipientId: string): Promise<SessionState | null>;
-  encryptOutbound(plaintext: string, conversationId: string): Promise<{
-    ciphertextB64: string;
-    dhHeaderB64: string;
-    msgNum: number;
-    prevChainLen: number;
-    newEpoch: number;
-  } | null>;
-  decryptInbound(params: {
-    ciphertextB64: string;
-    dhHeaderB64: string;
-    msgNum: number;
-    prevChainLen: number;
-    conversationId: string;
-  }): Promise<{ plaintext: string; newEpoch: number } | null>;
 }
 
 export function useCrypto(user: User | null) {
@@ -115,7 +97,6 @@ export function useCrypto(user: User | null) {
 
       await saveSession(session);
       setState(prev => ({ ...prev, handshakeStatus: 'established', currentEpoch: ratchetState.epoch }));
-      void ephemeralX25519PubKey; // would be sent to recipient in production
       return session;
     } catch (err) {
       console.error('[useCrypto] Handshake failed:', err);

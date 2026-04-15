@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { motion } from 'framer-motion';
 import { useAuth }      from './hooks/useAuth';
 import { useCrypto }    from './hooks/useCrypto';
 import { useMessaging } from './hooks/useMessaging';
@@ -26,11 +25,7 @@ export default function App() {
   if (auth.loading || auth.keyStatus === 'generating' || auth.keyStatus === 'uploading') {
     return (
       <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '24px', position: 'relative', zIndex: 1 }}>
-        <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
-          style={{ width: 48, height: 48, borderRadius: '50%', border: '2px solid var(--border)', borderTopColor: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-        />
+        <div style={{ width: 48, height: 48, borderRadius: '50%', border: '2px solid var(--border)', borderTopColor: 'var(--accent)', animation: 'ratchet-spin 1s linear infinite' }} />
         <div style={{ textAlign: 'center' }}>
           <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1rem', color: 'var(--text-primary)', marginBottom: '6px' }}>
             {auth.keyStatus === 'generating' ? 'Generating Post-Quantum Identity…' :
@@ -80,7 +75,6 @@ export default function App() {
   }
 
   // ── Main app ────────────────────────────────────────────────────────────
-  // convId used locally in handlers below
 
   const handleSelectContact = async (contact: Contact) => {
     setActiveContact(contact);
@@ -103,13 +97,9 @@ export default function App() {
 
   return (
     <div className="app-root">
-      {/* Status bar */}
       <StatusBar
         streamStatus={messaging.streamStatus}
         latencyMs={messaging.latencyMs}
-        handshakeStatus={crypto.handshakeStatus}
-        epoch={crypto.currentEpoch}
-        userEmail={auth.user.email ?? auth.user.id}
       />
 
       {/* Main layout */}
