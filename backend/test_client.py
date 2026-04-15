@@ -7,21 +7,11 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), 'core'))
 from core.protos import chat_pb2, chat_pb2_grpc
 
-async def run_chat_client(user_id, receiver_id, message_text):
+async def run_chat_client(user_id, receiver_id, message_text, send_delay=0.5):
     print(f"[{user_id}] Connecting to gRPC server at 127.0.0.1:50051...")
     
     # We use an asyncio Queue to send messages to the server
     send_queue = asyncio.Queue()
-    
-    # Initial message to set up our identity and send a message
-    initial_message = chat_pb2.ClientMessage(
-        token=user_id,  # Using token as our user_id for this test
-        receiver_id=receiver_id,
-        encrypted_payload=message_text.encode('utf-8'),
-        message_type="text",
-        ratchet_key="dummy_key"
-    )
-    await send_queue.put(initial_message)
 
     async def request_generator():
         while True:
@@ -37,12 +27,27 @@ async def run_chat_client(user_id, receiver_id, message_text):
         call = stub.StreamMessages(request_generator())
         
         print(f"[{user_id}] Connected and sending message: '{message_text}' to {receiver_id}")
+
+        await asyncio.sleep(send_delay)
+
+        initial_message = chat_pb2.ClientMessage(
+            token=user_id,
+            receiver_id=receiver_id,
+            encrypted_payload=message_text.encode('utf-8'),
+            message_type="text",
+            ratchet_key="dummy_key"
+        )
+        await send_queue.put(initial_message)
         
         # Read exactly one message from the server (which should be the reply)
         try:
-            response = await call.read()
+            response = await asyncio.wait_for(call.read(), timeout=8)
             if response:
                 print(f"[{user_id}] Received message from {response.sender_id}: {response.encrypted_payload.decode('utf-8')}")
+            else:
+                print(f"[{user_id}] Stream closed without an inbound message")
+        except asyncio.TimeoutError:
+            print(f"[{user_id}] No inbound message within timeout window")
         except Exception as e:
             print(f"[{user_id}] Error receiving: {e}")
             
@@ -73,8 +78,8 @@ async def main():
     # Alice will send a message to Bob, and Bob will send a message to Alice.
     print("[Test] Starting gRPC bi-directional Pub/Sub test...")
     
-    task_alice = asyncio.create_task(run_chat_client("Alice", "Bob", "Hello Bob! This is Alice."))
-    task_bob = asyncio.create_task(run_chat_client("Bob", "Alice", "Hi Alice! I am Bob."))
+    task_bob = asyncio.create_task(run_chat_client("Bob", "Alice", "Hi Alice! I am Bob.", send_delay=1.5))
+    task_alice = asyncio.create_task(run_chat_client("Alice", "Bob", "Hello Bob! This is Alice.", send_delay=2.0))
     
     await asyncio.gather(task_alice, task_bob)
     
