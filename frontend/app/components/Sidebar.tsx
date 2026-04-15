@@ -6,11 +6,9 @@ import type { Contact } from '../lib/types';
 interface Props {
   contacts: Contact[];
   activeContactId: string | null;
-  currentUserId: string;
   onSelectContact: (contact: Contact) => void;
   onNewChat: () => void;
   userEmail: string;
-  x25519PubKey: string | null;
 }
 
 const avatarHue = (name: string) => (name.charCodeAt(0) * 17) % 360;

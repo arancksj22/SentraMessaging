@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useAuth }      from './hooks/useAuth';
 import { useCrypto }    from './hooks/useCrypto';
 import { useMessaging } from './hooks/useMessaging';
@@ -18,8 +18,12 @@ export default function App() {
   const crypto    = useCrypto(auth.user);
   const messaging = useMessaging(auth.user, crypto);
 
-  const [activeContact, setActiveContact] = useState<Contact | null>(null);
+  const [activeContactId, setActiveContactId] = useState<string | null>(null);
   const [showHandshake, setShowHandshake] = useState(false);
+
+  const activeContact = useMemo(() => (
+    messaging.contacts.find(c => c.userId === activeContactId) ?? null
+  ), [messaging.contacts, activeContactId]);
 
   // ── Loading / key-generation screen ────────────────────────────────────
   if (auth.loading || auth.keyStatus === 'generating' || auth.keyStatus === 'uploading') {
@@ -77,7 +81,7 @@ export default function App() {
   // ── Main app ────────────────────────────────────────────────────────────
 
   const handleSelectContact = async (contact: Contact) => {
-    setActiveContact(contact);
+    setActiveContactId(contact.userId);
     const id = [auth.user!.id, contact.userId].sort().join(':');
     await messaging.loadConversation(id);
   };
@@ -85,13 +89,12 @@ export default function App() {
   const handleInitiateHandshake = async () => {
     if (!activeContact) return;
     setShowHandshake(true);
-    await crypto.initiateHandshake(activeContact.userId);
-    messaging.setContacts(prev => prev.map(c => c.userId === activeContact.userId ? { ...c, sessionEstablished: true } : c));
+    await messaging.requestConnection(activeContact.userId);
   };
 
   const handleNewChat = () => {
     setShowHandshake(false);
-    setActiveContact(null);
+    setActiveContactId(null);
     // In production: open a contact search / add dialog
   };
 
@@ -107,12 +110,10 @@ export default function App() {
         {/* Sidebar */}
         <Sidebar
           contacts={messaging.contacts}
-          activeContactId={activeContact?.userId ?? null}
-          currentUserId={auth.user.id}
+          activeContactId={activeContactId}
           onSelectContact={handleSelectContact}
           onNewChat={handleNewChat}
           userEmail={auth.user.email ?? ''}
-          x25519PubKey={auth.x25519PubKey}
         />
 
         {/* Chat window */}
@@ -123,7 +124,9 @@ export default function App() {
             currentEpoch={crypto.currentEpoch}
             onSend={text => activeContact && messaging.sendMessage(text, activeContact.userId)}
             onInitiateHandshake={handleInitiateHandshake}
+            onResetConversation={() => activeContact && messaging.resetConversation(activeContact.userId)}
             sessionEstablished={activeContact?.sessionEstablished ?? false}
+            handshakeStatus={crypto.handshakeStatus}
           />
         </div>
 

@@ -70,15 +70,24 @@ export class WebSocketTransport implements MessagingTransport {
   private _onStatus:  StatusHandler  | null = null;
   private _pingStart = 0;
   private _pingTimer: ReturnType<typeof setInterval> | null = null;
+  private _token = '';
 
   constructor(private readonly url: string) {}
+
+  setToken(token: string) {
+    this._token = token;
+  }
 
   connect(userId: string, onMessage: MessageHandler, onStatus: StatusHandler) {
     this._onMessage = onMessage;
     this._onStatus  = onStatus;
 
     onStatus('connecting');
-    this.ws = new WebSocket(`${this.url}?userId=${encodeURIComponent(userId)}`);
+    const params = new URLSearchParams({ userId });
+    if (this._token) {
+      params.set('token', this._token);
+    }
+    this.ws = new WebSocket(`${this.url}?${params.toString()}`);
 
     this.ws.onopen = () => {
       onStatus('connected');

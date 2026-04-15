@@ -89,6 +89,11 @@ export async function getSessionByRecipient(recipientId: string) {
   return db.getFromIndex('sessions', 'by-recipient', recipientId);
 }
 
+export async function deleteSession(conversationId: string) {
+  const db = await getDB();
+  await db.delete('sessions', conversationId);
+}
+
 // ─── Messages ──────────────────────────────────────────────────────────────
 
 export async function saveMessage(message: LocalMessage) {
@@ -100,4 +105,16 @@ export async function getConversationMessages(conversationId: string): Promise<L
   const db = await getDB();
   const all = await db.getAllFromIndex('messages', 'by-conversation', conversationId);
   return all.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+}
+
+export async function clearConversationMessages(conversationId: string) {
+  const db = await getDB();
+  const tx = db.transaction('messages', 'readwrite');
+  const idx = tx.store.index('by-conversation');
+  let cursor = await idx.openCursor(IDBKeyRange.only(conversationId));
+  while (cursor) {
+    await cursor.delete();
+    cursor = await cursor.continue();
+  }
+  await tx.done;
 }

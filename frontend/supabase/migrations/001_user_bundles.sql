@@ -1,8 +1,8 @@
 -- ─── SentraMessaging: Supabase Schema Migration ───────────────────────────
 -- Run this in your Supabase SQL Editor
 
--- Enable RLS
-alter default privileges in schema public revoke all on tables from anon, authenticated;
+-- NOTE: Avoid changing global default privileges in local app migrations.
+-- It can unintentionally remove access for tables created by the app.
 
 -- User public key bundles (read: any authenticated, write: own row only)
 create table if not exists public.user_bundles (
@@ -15,6 +15,10 @@ create table if not exists public.user_bundles (
 
 -- Row-Level Security
 alter table public.user_bundles enable row level security;
+
+-- Grants required in addition to RLS policies
+grant usage on schema public to authenticated;
+grant select, insert, update on table public.user_bundles to authenticated;
 
 -- Any authenticated user can read all bundles (needed for PQXDH handshake)
 create policy "Authenticated users can read bundles"

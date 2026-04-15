@@ -13,29 +13,29 @@ export default function StatusBar({ streamStatus, latencyMs }: Props) {
 
   return (
     <div style={{
-      height: '44px',
+      height: '50px',
       background: 'var(--bg-base)',
       borderBottom: '1px solid var(--border)',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
-      padding: '0 20px',
+      padding: '0 18px',
       flexShrink: 0,
       zIndex: 10,
       position: 'relative',
     }}>
-      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', fontWeight: 600, color: 'var(--accent)', letterSpacing: '0.12em' }}>
-        SENTRA∷CORE
+      <span style={{ fontFamily: 'var(--font-display)', fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>
+        SentraMessaging
       </span>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: color, boxShadow: connected ? `0 0 6px ${color}` : 'none' }} />
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: color }} />
+        <span style={{ fontFamily: 'var(--font-display)', fontSize: '0.9rem', fontWeight: 600, color }}>
           {streamStatus}
         </span>
         {latencyMs !== null && connected && (
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.62rem', color: 'var(--text-muted)' }}>
-            · {latencyMs}ms
+          <span style={{ fontFamily: 'var(--font-display)', fontSize: '0.88rem', color: 'var(--text-muted)' }}>
+            {latencyMs} ms
           </span>
         )}
       </div>

@@ -27,6 +27,13 @@ export interface SessionState {
   ratchetState: RatchetState;
   established: boolean;
   establishedAt: string;
+  handshakeMode?: 'pqxdh-v1' | 'static-fallback-v1';
+}
+
+export interface PQXDHHandshakePayload {
+  version: 'pqxdh-v1';
+  ephemeralX25519PubKey: string;
+  kyberCiphertext: string;
 }
 
 export interface MessageEnvelope {
@@ -39,6 +46,10 @@ export interface MessageEnvelope {
   msgNum: number;
   prevChainLen: number;
   timestamp: string;
+  handshake?: PQXDHHandshakePayload;
+  control?: {
+    type: 'connect-intent' | 'connect-ack';
+  };
 }
 
 export interface LocalMessage {
@@ -106,6 +117,10 @@ export interface CryptoWorkerAPI {
     theirX25519PubKey: string;
     myKyberPrivKey: string;
     kyberCiphertext: string;
+  }): Promise<{ sharedSecret: string }>;
+  deriveStaticSharedSecret(params: {
+    myX25519PrivKey: string;
+    theirX25519PubKey: string;
   }): Promise<{ sharedSecret: string }>;
   initRatchet(params: {
     sharedSecret: string;

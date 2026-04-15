@@ -62,10 +62,13 @@ async function kdfCK(ck: Uint8Array): Promise<[Uint8Array, Uint8Array]> {
 async function kyberKeypair(): Promise<{ pub: Uint8Array; priv: Uint8Array }> {
   try {
     const mod = await import('pqc-kyber' as any);
-    const api = mod.kyber768 ?? mod.default?.kyber768 ?? mod.default;
+    const api = mod.kyber768 ?? mod.default?.kyber768 ?? mod.default ?? mod;
     const res = await api.keypair();
     if (Array.isArray(res)) return { pub: res[0], priv: res[1] };
-    return { pub: res.publicKey ?? res.pk, priv: res.secretKey ?? res.sk };
+    return {
+      pub: res.publicKey ?? res.pk ?? res.pubkey,
+      priv: res.secretKey ?? res.sk ?? res.secret,
+    };
   } catch {
     const priv = crypto.getRandomValues(new Uint8Array(2400));
     const pub  = crypto.getRandomValues(new Uint8Array(1184));
@@ -76,7 +79,7 @@ async function kyberKeypair(): Promise<{ pub: Uint8Array; priv: Uint8Array }> {
 async function kyberEncapsulate(pub: Uint8Array): Promise<{ ct: Uint8Array; ss: Uint8Array }> {
   try {
     const mod = await import('pqc-kyber' as any);
-    const api = mod.kyber768 ?? mod.default?.kyber768 ?? mod.default;
+    const api = mod.kyber768 ?? mod.default?.kyber768 ?? mod.default ?? mod;
     const res = await api.encapsulate(pub);
     if (Array.isArray(res)) return { ct: res[0], ss: res[1] };
     return { ct: res.ciphertext ?? res.ct, ss: res.sharedSecret ?? res.ss };
@@ -90,7 +93,7 @@ async function kyberEncapsulate(pub: Uint8Array): Promise<{ ct: Uint8Array; ss: 
 async function kyberDecapsulate(ct: Uint8Array, priv: Uint8Array): Promise<Uint8Array> {
   try {
     const mod = await import('pqc-kyber' as any);
-    const api = mod.kyber768 ?? mod.default?.kyber768 ?? mod.default;
+    const api = mod.kyber768 ?? mod.default?.kyber768 ?? mod.default ?? mod;
     const res = await api.decapsulate(ct, priv);
     if (res instanceof Uint8Array) return res;
     if (Array.isArray(res)) return res[0];
@@ -150,6 +153,19 @@ const cryptoApi = {
     return { sharedSecret: b64.encode(sk) };
   },
 
+  // Deterministic fallback bootstrap used by current messaging flow where
+  // PQXDH payload exchange is not yet modeled over the wire.
+  async deriveStaticSharedSecret(params: {
+    myX25519PrivKey: string;
+    theirX25519PubKey: string;
+  }) {
+    await _sodium.ready;
+    const s = _sodium;
+    const dh = s.crypto_scalarmult(b64.decode(params.myX25519PrivKey), b64.decode(params.theirX25519PubKey));
+    const sk = await hkdf(dh, new Uint8Array(32), 'sentra-static-x25519-v1', 32);
+    return { sharedSecret: b64.encode(sk) };
+  },
+
   async initRatchet(params: {
     sharedSecret: string;
     isInitiator: boolean;
@@ -160,21 +176,17 @@ const cryptoApi = {
     const sk = b64.decode(params.sharedSecret);
     const dhPair = s.crypto_box_keypair();
 
-    let rootKey: Uint8Array;
-    let sendCK: Uint8Array;
-
-    if (params.isInitiator && params.theirDHPub) {
-      const dh = s.crypto_scalarmult(dhPair.privateKey, b64.decode(params.theirDHPub));
-      [rootKey, sendCK] = await kdfRK(sk, dh);
-    } else {
-      rootKey = sk;
-      sendCK  = await hkdf(sk, new Uint8Array(32), 'sentra-init-send-chain', 32);
-    }
+    // Deterministic role-based chains so both peers derive compatible keys
+    // without an explicit prekey/ciphertext handshake payload.
+    const ckA = await hkdf(sk, new Uint8Array(32), 'sentra-chain-a-v1', 32);
+    const ckB = await hkdf(sk, new Uint8Array(32), 'sentra-chain-b-v1', 32);
+    const sendCK = params.isInitiator ? ckA : ckB;
+    const recvCK = params.isInitiator ? ckB : ckA;
 
     return {
-      rootKey:          b64.encode(rootKey),
+      rootKey:          b64.encode(sk),
       sendingChainKey:  b64.encode(sendCK),
-      receivingChainKey: null,
+      receivingChainKey: b64.encode(recvCK),
       dhSendPub:  b64.encode(dhPair.publicKey),
       dhSendPriv: b64.encode(dhPair.privateKey),
       dhRecvPub:  params.theirDHPub ?? null,
@@ -214,14 +226,39 @@ const cryptoApi = {
     ratchetState: RatchetState;
   }) {
     const st = params.ratchetState;
-    const ck = b64.decode(st.receivingChainKey ?? st.sendingChainKey);
+    if (!st.receivingChainKey) {
+      throw new Error('Missing receiving chain key for inbound decrypt');
+    }
+
+    // Handle delivery gaps by advancing the receiving chain to the incoming
+    // message index. Without this, one skipped/duplicate message permanently
+    // desynchronizes keys and causes AES-GCM OperationError.
+    if (params.msgNum < st.recvMsgNum) {
+      throw new Error(`Replay/out-of-order message: msgNum=${params.msgNum}, recvMsgNum=${st.recvMsgNum}`);
+    }
+
+    let ck = new Uint8Array(b64.decode(st.receivingChainKey));
+    let localRecvNum = st.recvMsgNum;
+
+    while (localRecvNum < params.msgNum) {
+      const [nextCK] = await kdfCK(ck);
+      ck = new Uint8Array(nextCK);
+      localRecvNum += 1;
+    }
+
     const [newCK, msgKey] = await kdfCK(ck);
     const headerBytes = b64.decode(params.dhHeaderB64);
     const packed      = b64.decode(params.ciphertextB64);
     const plainBytes  = await aesgcmDecrypt(msgKey, packed, headerBytes);
 
-    const newEpoch = st.epoch + (st.recvMsgNum > 0 && st.recvMsgNum % 10 === 0 ? 1 : 0);
-    const newState: RatchetState = { ...st, receivingChainKey: b64.encode(newCK), recvMsgNum: st.recvMsgNum + 1, epoch: newEpoch };
+    const updatedRecvNum = params.msgNum + 1;
+    const newEpoch = st.epoch + (updatedRecvNum > 0 && updatedRecvNum % 10 === 0 ? 1 : 0);
+    const newState: RatchetState = {
+      ...st,
+      receivingChainKey: b64.encode(newCK),
+      recvMsgNum: updatedRecvNum,
+      epoch: newEpoch,
+    };
 
     return { plaintext: new TextDecoder().decode(plainBytes), newRatchetState: newState };
   },

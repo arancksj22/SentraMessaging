@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import MessageBubble from './MessageBubble';
-import type { LocalMessage, Contact } from '../lib/types';
+import type { LocalMessage, Contact, HandshakeStatus } from '../lib/types';
 
 interface Props {
   contact: Contact | null;
@@ -11,12 +11,14 @@ interface Props {
   currentEpoch: number;
   onSend: (text: string) => void;
   onInitiateHandshake: () => void;
+  onResetConversation: () => void;
   sessionEstablished: boolean;
+  handshakeStatus: HandshakeStatus;
 }
 
 const avatarHue = (name: string) => (name.charCodeAt(0) * 17) % 360;
 
-export default function ChatWindow({ contact, messages, currentEpoch, onSend, onInitiateHandshake, sessionEstablished }: Props) {
+export default function ChatWindow({ contact, messages, currentEpoch, onSend, onInitiateHandshake, onResetConversation, sessionEstablished, handshakeStatus }: Props) {
   const [input, setInput] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -49,15 +51,19 @@ export default function ChatWindow({ contact, messages, currentEpoch, onSend, on
   }
 
   const hue = avatarHue(contact.displayName);
+  const isConnecting = ['fetching_bundle', 'x25519_dh', 'kyber_encapsulate', 'hkdf_derive'].includes(handshakeStatus);
+  const connectionLabel = sessionEstablished ? 'Connected' : (isConnecting ? 'Connecting…' : 'Not connected');
+  const connectionColor = sessionEstablished ? 'var(--success)' : (isConnecting ? 'var(--warning)' : 'var(--text-muted)');
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Header */}
       <div style={{
-        padding: '12px 20px',
+        padding: '12px 16px',
         borderBottom: '1px solid var(--border)',
         background: 'var(--bg-base)',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        gap: '10px', flexWrap: 'wrap',
         flexShrink: 0,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -75,9 +81,7 @@ export default function ChatWindow({ contact, messages, currentEpoch, onSend, on
           <div>
             <div style={{ fontWeight: 600, fontSize: '0.88rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
               {contact.displayName}
-              {sessionEstablished && (
-                <span style={{ fontSize: '0.6rem', color: 'var(--success)', fontFamily: 'var(--font-mono)', fontWeight: 400 }}>· secured</span>
-              )}
+              <span style={{ fontSize: '0.6rem', color: connectionColor, fontFamily: 'var(--font-mono)', fontWeight: 500 }}>· {connectionLabel}</span>
             </div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: 'var(--text-muted)', marginTop: '1px' }}>
               epoch {currentEpoch}
@@ -85,11 +89,19 @@ export default function ChatWindow({ contact, messages, currentEpoch, onSend, on
           </div>
         </div>
 
-        {!sessionEstablished && (
-          <button className="btn btn-ghost" onClick={onInitiateHandshake} style={{ fontSize: '0.75rem', padding: '6px 14px' }}>
-            Connect
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <button className="btn btn-ghost" onClick={onResetConversation} style={{ fontSize: '0.75rem', padding: '6px 10px', minWidth: '110px' }}>
+            Reset Session
           </button>
-        )}
+          <button
+            className="btn btn-ghost"
+            onClick={onInitiateHandshake}
+            disabled={isConnecting}
+            style={{ fontSize: '0.75rem', padding: '6px 14px', minWidth: '110px' }}
+          >
+            {sessionEstablished ? 'Reconnect' : (isConnecting ? 'Connecting…' : 'Connect')}
+          </button>
+        </div>
       </div>
 
       {/* Messages */}
@@ -120,7 +132,7 @@ export default function ChatWindow({ contact, messages, currentEpoch, onSend, on
           className="input-field"
           value={input}
           onChange={e => setInput(e.target.value)}
-          placeholder={sessionEstablished ? 'Message…' : 'Connect first…'}
+          placeholder={sessionEstablished ? 'Message…' : 'Connect first to start messaging'}
           disabled={!sessionEstablished}
         />
         <button

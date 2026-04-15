@@ -7,6 +7,10 @@ import type { KeyStatus, CryptoWorkerAPI } from '../lib/types';
 import type { User } from '@supabase/supabase-js';
 import * as Comlink from 'comlink';
 
+const hasSupabaseConfig = Boolean(
+  process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+);
+
 export interface AuthState {
   user: User | null;
   loading: boolean;
@@ -26,6 +30,13 @@ export function useAuth() {
     kyberPubKey: null,
   });
   const workerRef = useRef<Worker | null>(null);
+  const authInFlightRef = useRef(false);
+  const signupCooldownUntilRef = useRef(0);
+
+  const isRateLimitError = (message: string | undefined) => {
+    const m = (message ?? '').toLowerCase();
+    return m.includes('rate') || m.includes('too many') || m.includes('over_email_send_rate_limit');
+  };
 
   const generateAndStoreKeys = useCallback(async (user: User) => {
     setState(prev => ({ ...prev, keyStatus: 'generating' }));
@@ -50,7 +61,22 @@ export function useAuth() {
 
       // Upload public bundle to Supabase
       setState(prev => ({ ...prev, keyStatus: 'uploading' }));
-      await uploadPublicBundle(user.id, keys.x25519PubKey, keys.kyberPubKey);
+      const { error } = await uploadPublicBundle(
+        user.id,
+        keys.x25519PubKey,
+        keys.kyberPubKey,
+        user.email ?? null,
+        (user.user_metadata?.name as string | undefined) ?? null,
+      );
+      if (error) {
+        console.error('[useAuth] Public bundle upload failed:', error);
+        setState(prev => ({
+          ...prev,
+          keyStatus: 'error',
+          error: 'Could not upload your public key bundle. Check Supabase table grants and RLS policy.',
+        }));
+        return;
+      }
 
       setState(prev => ({
         ...prev,
@@ -71,11 +97,33 @@ export function useAuth() {
       return;
     }
     const enc = (u: Uint8Array) => btoa(String.fromCharCode(...u));
+    const xPub = enc(keys.x25519PubKey);
+    const kyPub = enc(keys.kyberPubKey);
+
+    // Re-sync public bundle on login so contacts can discover this user even if
+    // earlier uploads failed due temporary RLS/grant misconfiguration.
+    const { error } = await uploadPublicBundle(
+      user.id,
+      xPub,
+      kyPub,
+      user.email ?? null,
+      (user.user_metadata?.name as string | undefined) ?? null,
+    );
+    if (error) {
+      console.error('[useAuth] Public bundle re-sync failed:', error);
+      setState(prev => ({
+        ...prev,
+        keyStatus: 'error',
+        error: 'Signed in, but failed to publish public key bundle. Messaging discovery may be unavailable.',
+      }));
+      return;
+    }
+
     setState(prev => ({
       ...prev,
       keyStatus: 'ready',
-      x25519PubKey: enc(keys.x25519PubKey),
-      kyberPubKey:  enc(keys.kyberPubKey),
+      x25519PubKey: xPub,
+      kyberPubKey:  kyPub,
     }));
   }, [generateAndStoreKeys]);
 
@@ -100,16 +148,68 @@ export function useAuth() {
   }, [loadExistingKeys]);
 
   const login = useCallback(async (email: string, password: string) => {
+    if (!hasSupabaseConfig) {
+      setState(prev => ({ ...prev, loading: false, error: 'Supabase is not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in frontend/.env.local and restart dev server.' }));
+      return;
+    }
+    if (authInFlightRef.current) return;
+    authInFlightRef.current = true;
     setState(prev => ({ ...prev, loading: true, error: null }));
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) setState(prev => ({ ...prev, loading: false, error: error.message }));
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        setState(prev => ({ ...prev, loading: false, error: error.message }));
+        return;
+      }
+      setState(prev => ({ ...prev, loading: false }));
+    } finally {
+      authInFlightRef.current = false;
+    }
   }, []);
 
   const signup = useCallback(async (email: string, password: string) => {
+    if (!hasSupabaseConfig) {
+      setState(prev => ({ ...prev, loading: false, error: 'Supabase is not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in frontend/.env.local and restart dev server.' }));
+      return;
+    }
+    if (authInFlightRef.current) return;
+
+    const now = Date.now();
+    if (now < signupCooldownUntilRef.current) {
+      const seconds = Math.ceil((signupCooldownUntilRef.current - now) / 1000);
+      setState(prev => ({
+        ...prev,
+        loading: false,
+        error: `Signup temporarily paused to avoid email limits. Try again in ${seconds}s, or use Sign In if account already exists.`,
+      }));
+      return;
+    }
+
+    authInFlightRef.current = true;
     setState(prev => ({ ...prev, loading: true, error: null }));
-    const { error } = await supabase.auth.signUp({ email, password });
-    if (error) setState(prev => ({ ...prev, loading: false, error: error.message }));
-    else setState(prev => ({ ...prev, loading: false }));
+    try {
+      const { error } = await supabase.auth.signUp({ email: email.trim().toLowerCase(), password });
+      if (error) {
+        if (isRateLimitError(error.message)) {
+          signupCooldownUntilRef.current = Date.now() + 60_000;
+          setState(prev => ({
+            ...prev,
+            loading: false,
+            error: 'Email rate limit reached. Please wait 60 seconds before creating another account, or use Sign In if this account already exists.',
+          }));
+          return;
+        }
+        setState(prev => ({ ...prev, loading: false, error: error.message }));
+        return;
+      }
+      setState(prev => ({
+        ...prev,
+        loading: false,
+        error: 'Check your inbox for a confirmation email, then return and sign in.',
+      }));
+    } finally {
+      authInFlightRef.current = false;
+    }
   }, []);
 
   const logout = useCallback(async () => {
